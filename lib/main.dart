@@ -1,4 +1,7 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
+import 'package:reorderables/reorderables.dart';
 
 /// Entrypoint of the application.
 void main() {
@@ -64,68 +67,122 @@ class _DockState<T> extends State<Dock<T>> {
   /// [T] items being manipulated.
   late final List<T> _items = widget.items.toList();
 
-  /// MATEUSZ LAUDAN'S COMMENTS:
-  ///
-  /// pitfall: in this scenario (for such dock items) the size below (height, width) works correctly
-  /// this is not dynamic
-  final double height = 75;
-  final double width = 330;
+  late int? hoveredIndex;
+  late double baseItemHeight;
+  late double baseTranslationY;
+  late double verticlItemsPadding;
 
-  /// for purposes, [SliverReorderableList] has been used - it enables reorder of the list's items
-  /// pitfall: the items are draggable horizontally only - as [scrollDirection] in parent widget [CustomScrollView] assigned
+  @override
+  void initState() {
+    super.initState();
+    hoveredIndex = null;
+    baseItemHeight = 64;
+    verticlItemsPadding = 5;
+    baseTranslationY = 0.0;
+  }
 
-  /// animation [Transform.scale] was used in reordering the elements
+  double getTranslationY(int index) {
+    return getPropertyValue(
+      index: index,
+      baseValue: baseTranslationY,
+      maxValue: -9,
+      nonHoveredMaxValue: -5,
+    );
+  }
 
-  /// TODO: use [Draggable] and [DragTarget] for drag and drop functionalities
-  /// better for custom dragging interactions
+  double getPropertyValue({
+    required int index,
+    required double baseValue,
+    required double maxValue,
+    required double nonHoveredMaxValue,
+  }) {
+    late final double propertyValue;
+
+    // 1.
+    if (hoveredIndex == null) {
+      return baseValue;
+    }
+
+    // 2.
+    final difference = (hoveredIndex! - index).abs();
+
+    // 3.
+    final itemsAffected = _items.length;
+
+    // 4.
+    if (difference == 0) {
+      propertyValue = maxValue;
+
+      // 5.
+    } else if (difference <= itemsAffected) {
+      final ratio = (itemsAffected - difference) / itemsAffected;
+
+      propertyValue = lerpDouble(baseValue, nonHoveredMaxValue, ratio)!;
+
+      // 6.
+    } else {
+      propertyValue = baseValue;
+    }
+
+    return propertyValue;
+  }
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(8),
-        color: Colors.black12,
-      ),
-      height: height,
-      width: width,
-      padding: const EdgeInsets.all(4),
-      child: CustomScrollView(
-        scrollDirection: Axis.horizontal,
-        slivers: [
-          SliverReorderableList(
-            autoScrollerVelocityScalar:
-                100, // changed for user's experience only
-            itemCount: _items.length,
-            itemBuilder: (context, index) {
-              return ReorderableDragStartListener(
-                  key: ValueKey(index),
-                  index: index,
-                  child: widget.builder(_items[index]));
-            },
-            onReorder: (oldIndex, newIndex) {
-              setState(() {
-                if (oldIndex < newIndex) {
-                  newIndex -= 1;
-                }
-                final item = _items.removeAt(oldIndex);
-                _items.insert(newIndex, item);
-              });
-            },
-            proxyDecorator: (child, index, animation) {
-              return AnimatedBuilder(
-                animation: animation,
-                builder: (context, child) {
-                  return Transform.scale(
-                    scale: 1.0 + 0.2 * animation.value,
-                    child: child,
-                  );
-                },
-                child: child,
-              );
-            },
-          ),
-        ],
-      ),
-    );
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(8),
+          color: Colors.black12,
+        ),
+        padding: const EdgeInsets.all(4),
+        child: ReorderableWrap(
+          runAlignment: WrapAlignment.center,
+          scrollDirection: Axis.horizontal,
+          needsLongPressDraggable: false,
+          children: _items
+              .map((e) => Tooltip(
+                    preferBelow: false,
+                    verticalOffset: 50,
+                    exitDuration: Duration.zero,
+                    showDuration: Duration.zero,
+                    message: e.toString(),
+                    child: MouseRegion(
+                      key: ValueKey(e),
+                      onEnter: ((event) {
+                        setState(() {
+                          hoveredIndex = _items.indexOf(e);
+                        });
+                      }),
+                      onExit: (event) {
+                        setState(() {
+                          hoveredIndex = null;
+                        });
+                      },
+                      child: AnimatedContainer(
+                        duration: const Duration(
+                          milliseconds: 300,
+                        ),
+                        transform: Matrix4.identity()
+                          ..translate(
+                            0.0,
+                            getTranslationY(_items.indexOf(e)),
+                            0.0,
+                          ),
+                        child: widget.builder(e),
+                      ),
+                    ),
+                  ))
+              .toList(),
+          buildDraggableFeedback: (context, direction, children) {
+            return children;
+          },
+          onReorder: (oldIndex, newIndex) {
+            setState(() {
+              final item = _items.removeAt(oldIndex);
+
+              _items.insert(newIndex, item);
+            });
+          },
+        ));
   }
 }
